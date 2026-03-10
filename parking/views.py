@@ -3,6 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from django.contrib.auth import authenticate
+from django.contrib.auth import login as auth_login, logout as auth_logout
 from .models import Parking, User, Booking
 from .serializers import (
     UserRegistrationSerializer,
@@ -55,6 +56,7 @@ def login(request):
     
     user = authenticate(request, username=email, password=password)
     if user:
+        auth_login(request._request, user)  # Create session - use underlying Django request
         return Response({
             'user': UserSerializer(user).data,
             'message': 'Login successful'
@@ -72,13 +74,28 @@ def logout_view(request):
     """
     Logout user.
     POST /api/parkmate/logout
+    No credentials (email/password) needed - only session cookie required.
+    Just send the session cookie that was created during login.
     """
+    auth_logout(request._request)  # Destroy session - use underlying Django request
     return Response({'message': 'Logout successful'}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_current_user(request):
+    """
+    Get current authenticated user information.
+    GET /api/parkmate/me/
+    """
+    serializer = UserSerializer(request.user)
+    return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 # User management endpoints
 
 @api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
 def get_user(request, user_id):
     """
     Get user information.
@@ -87,25 +104,19 @@ def get_user(request, user_id):
     """
     user = get_object_or_404(User, id=user_id)
     
-    # Get authenticated user from token/session
-    auth_user_id = request.headers.get('X-User-Id')
-    if auth_user_id:
-        try:
-            auth_user = User.objects.get(id=int(auth_user_id))
-            # Check permission: admin or self
-            if not auth_user.is_admin and auth_user.id != user.id:
-                return Response(
-                    {'error': 'You do not have permission to access this user'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        except (User.DoesNotExist, ValueError):
-            pass
+    # Check permission: admin or self
+    if not request.user.is_admin and request.user.id != user.id:
+        return Response(
+            {'error': 'You do not have permission to access this user'},
+            status=status.HTTP_403_FORBIDDEN
+        )
     
     serializer = UserSerializer(user)
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 @api_view(['DELETE'])
+@permission_classes([permissions.IsAuthenticated])
 def delete_user(request, user_id):
     """
     Delete a user.
@@ -114,19 +125,12 @@ def delete_user(request, user_id):
     """
     user = get_object_or_404(User, id=user_id)
     
-    # Get authenticated user from token/session
-    auth_user_id = request.headers.get('X-User-Id')
-    if auth_user_id:
-        try:
-            auth_user = User.objects.get(id=int(auth_user_id))
-            # Check permission: admin or self
-            if not auth_user.is_admin and auth_user.id != user.id:
-                return Response(
-                    {'error': 'You do not have permission to delete this user'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        except (User.DoesNotExist, ValueError):
-            pass
+    # Check permission: admin or self
+    if not request.user.is_admin and request.user.id != user.id:
+        return Response(
+            {'error': 'You do not have permission to delete this user'},
+            status=status.HTTP_403_FORBIDDEN
+        )
     
     user.delete()
     return Response({'message': 'User deleted successfully'}, status=status.HTTP_200_OK)
@@ -192,6 +196,7 @@ def delete_parking(request, parking_id):
 # Booking endpoints
 
 @api_view(['GET', 'POST'])
+@permission_classes([permissions.IsAuthenticated])
 def booking_list_create(request):
     """
     Create a new booking or get all bookings.
@@ -199,47 +204,24 @@ def booking_list_create(request):
     GET /api/parkmate/bookings - Get all bookings (Admin: all, User: own)
     """
     if request.method == 'POST':
-        # Get user from header
-        auth_user_id = request.headers.get('X-User-Id')
-        if auth_user_id:
-            try:
-                user = User.objects.get(id=int(auth_user_id))
-                request.user_obj = user
-            except (User.DoesNotExist, ValueError):
-                return Response(
-                    {'error': 'Invalid user authentication'},
-                    status=status.HTTP_401_UNAUTHORIZED
-                )
-        else:
-            return Response(
-                {'error': 'User authentication required'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        
+        request.user_obj = request.user
         serializer = BookingSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     else:  # GET
-        auth_user_id = request.headers.get('X-User-Id')
-        if auth_user_id:
-            try:
-                user = User.objects.get(id=int(auth_user_id))
-                if user.is_admin:
-                    bookings = Booking.objects.all()
-                else:
-                    bookings = Booking.objects.filter(user_id=user)
-            except (User.DoesNotExist, ValueError):
-                bookings = Booking.objects.none()
-        else:
+        if request.user.is_admin:
             bookings = Booking.objects.all()
+        else:
+            bookings = Booking.objects.filter(user_id=request.user)
         
         serializer = BookingSerializer(bookings, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
 def get_booking(request, booking_id):
     """
     Get specific booking.
@@ -247,26 +229,19 @@ def get_booking(request, booking_id):
     """
     booking = get_object_or_404(Booking, booking_id=booking_id)
     
-    # Check permission
-    auth_user_id = request.headers.get('X-User-Id')
-    if auth_user_id:
-        try:
-            user = User.objects.get(id=int(auth_user_id))
-            if not user.is_admin:
-                # Check if user owns the booking
-                if booking.user_id != user:
-                    return Response(
-                        {'error': 'You do not have permission to access this booking'},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
-        except (User.DoesNotExist, ValueError):
-            pass
+    # Check permission: admin or owner
+    if not request.user.is_admin and booking.user_id != request.user:
+        return Response(
+            {'error': 'You do not have permission to access this booking'},
+            status=status.HTTP_403_FORBIDDEN
+        )
     
     serializer = BookingSerializer(booking)
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 @api_view(['PUT'])
+@permission_classes([permissions.IsAuthenticated])
 def update_booking(request, booking_id):
     """
     Update a booking.
@@ -275,25 +250,14 @@ def update_booking(request, booking_id):
     """
     booking = get_object_or_404(Booking, booking_id=booking_id)
     
-    # Check permission
-    auth_user_id = request.headers.get('X-User-Id')
-    if auth_user_id:
-        try:
-            user = User.objects.get(id=int(auth_user_id))
-            if not user.is_admin:
-                # Check if user owns the booking
-                if booking.user_id != user:
-                    return Response(
-                        {'error': 'You do not have permission to update this booking'},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
-            request.user_obj = user
-        except (User.DoesNotExist, ValueError):
-            return Response(
-                {'error': 'Invalid user authentication'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+    # Check permission: admin or owner
+    if not request.user.is_admin and booking.user_id != request.user:
+        return Response(
+            {'error': 'You do not have permission to update this booking'},
+            status=status.HTTP_403_FORBIDDEN
+        )
     
+    request.user_obj = request.user
     serializer = BookingSerializer(booking, data=request.data, partial=True, context={'request': request})
     if serializer.is_valid():
         serializer.save()
@@ -302,6 +266,7 @@ def update_booking(request, booking_id):
 
 
 @api_view(['DELETE'])
+@permission_classes([permissions.IsAuthenticated])
 def delete_booking(request, booking_id):
     """
     Delete a booking.
@@ -310,23 +275,12 @@ def delete_booking(request, booking_id):
     """
     booking = get_object_or_404(Booking, booking_id=booking_id)
     
-    # Check permission
-    auth_user_id = request.headers.get('X-User-Id')
-    if auth_user_id:
-        try:
-            user = User.objects.get(id=int(auth_user_id))
-            if not user.is_admin:
-                # Check if user owns the booking
-                if booking.user_id != user:
-                    return Response(
-                        {'error': 'You do not have permission to delete this booking'},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
-        except (User.DoesNotExist, ValueError):
-            return Response(
-                {'error': 'Invalid user authentication'},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+    # Check permission: admin or owner
+    if not request.user.is_admin and booking.user_id != request.user:
+        return Response(
+            {'error': 'You do not have permission to delete this booking'},
+            status=status.HTTP_403_FORBIDDEN
+        )
     
     booking.delete()
     return Response({'message': 'Booking deleted successfully'}, status=status.HTTP_200_OK)

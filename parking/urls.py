@@ -4,6 +4,7 @@ from .views import (
     register,
     login,
     logout_view,
+    get_current_user,
     get_user,
     delete_user,
     parking_list_create,
@@ -23,6 +24,7 @@ urlpatterns = [
     path('register/', register, name='register'),
     path('login/', login, name='login'),
     path('logout/', logout_view, name='logout'),
+    path('me/', get_current_user, name='get_current_user'),
     
     # User endpoints
     path('users/<int:user_id>/', get_user, name='get_user'),

@@ -25,7 +25,8 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('password_confirm')
         password = validated_data.pop('password')
-        user = User.objects.create_user(password=password, **validated_data)
+        email = validated_data.pop('email')
+        user = User.objects.create_user(email=email, password=password, **validated_data)
         return user
 
 
@@ -89,12 +90,29 @@ class BookingSerializer(serializers.ModelSerializer):
         parking = Parking.objects.get(parking_id=parking_id)
         validated_data['parking_id'] = parking
         
-        # Set user_id from request if not provided
+        # Remove user_id if it was passed as integer (we'll set it from request)
+        validated_data.pop('user_id', None)
+        
+        # Set user_id from request (user_obj is set in the view)
         request = self.context.get('request')
         if request and hasattr(request, 'user_obj') and request.user_obj:
             validated_data['user_id'] = request.user_obj
-        
-        # Remove user_id from validated_data if it was passed as integer (we use request.user_obj instead)
-        validated_data.pop('user_id', None)
+        elif request and hasattr(request, 'user') and request.user.is_authenticated:
+            validated_data['user_id'] = request.user
+        else:
+            raise serializers.ValidationError({"user_id": "User authentication required"})
         
         return super().create(validated_data)
+    
+    def update(self, instance, validated_data):
+        # Convert parking_id from integer to Parking instance if provided
+        if 'parking_id' in validated_data:
+            parking_id = validated_data.pop('parking_id')
+            parking = Parking.objects.get(parking_id=parking_id)
+            validated_data['parking_id'] = parking
+        
+        # Remove user_id if it was passed (we don't allow changing the user)
+        validated_data.pop('user_id', None)
+        
+        # Update the instance
+        return super().update(instance, validated_data)
