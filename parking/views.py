@@ -142,10 +142,22 @@ def delete_user(request, user_id):
 def parking_list_create(request):
     """
     Create a new parking or get all parkings.
-    POST /api/parkmate/parking - Create parking
-    GET /api/parkmate/parking - Get all parkings
+    POST /api/parkmate/parking - Create parking (Admin only)
+    GET /api/parkmate/parking - Get all parkings (Public)
     """
     if request.method == 'POST':
+        # Check if user is authenticated and is admin
+        if not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentication required'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        if not request.user.is_admin:
+            return Response(
+                {'error': 'Only admins can create parking places'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         serializer = ParkingSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -173,7 +185,20 @@ def update_parking(request, parking_id):
     """
     Update a parking.
     PUT /api/parkmate/parking/{parking_id}
+    Admin only.
     """
+    # Check if user is authenticated and is admin
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Authentication required'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    if not request.user.is_admin:
+        return Response(
+            {'error': 'Only admins can update parking places'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
     parking = get_object_or_404(Parking, parking_id=parking_id)
     serializer = ParkingSerializer(parking, data=request.data, partial=True)
     if serializer.is_valid():
@@ -187,7 +212,20 @@ def delete_parking(request, parking_id):
     """
     Delete a parking.
     DELETE /api/parkmate/parking/{parking_id}
+    Admin only.
     """
+    # Check if user is authenticated and is admin
+    if not request.user.is_authenticated:
+        return Response(
+            {'error': 'Authentication required'},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+    if not request.user.is_admin:
+        return Response(
+            {'error': 'Only admins can delete parking places'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
     parking = get_object_or_404(Parking, parking_id=parking_id)
     parking.delete()
     return Response({'message': 'Parking deleted successfully'}, status=status.HTTP_200_OK)
