@@ -65,18 +65,35 @@ class BookingSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         start_time = attrs.get('start_time')
         end_time = attrs.get('end_time')
-        
+        parking_id = attrs.get('parking_id')
+
         if start_time and end_time and start_time >= end_time:
             raise serializers.ValidationError({"end_time": "End time must be after start time"})
-        
-        # Check if parking exists
-        parking_id = attrs.get('parking_id')
-        if parking_id:
-            try:
-                Parking.objects.get(parking_id=parking_id)
-            except Parking.DoesNotExist:
-                raise serializers.ValidationError({"parking_id": "Parking does not exist"})
-        
+
+        if not parking_id:
+            raise serializers.ValidationError({"parking_id": "Parking is required"})
+
+        # Ensure parking exists
+        try:
+            parking = Parking.objects.get(parking_id=parking_id)
+        except Parking.DoesNotExist:
+            raise serializers.ValidationError({"parking_id": "Parking does not exist"})
+
+        # Capacity check: count overlapping bookings for this parking
+        if start_time and end_time:
+            overlapping = Booking.objects.filter(
+                parking_id=parking,
+                start_time__lt=end_time,
+                end_time__gt=start_time,
+            ).count()
+
+            if overlapping >= parking.amount_of_spots:
+                raise serializers.ValidationError({
+                    "non_field_errors": [
+                        "No available spots for this parking in the selected time range."
+                    ]
+                })
+
         return attrs
 
     def create(self, validated_data):
