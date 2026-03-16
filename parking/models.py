@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.conf import settings
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -42,6 +43,20 @@ class Parking(models.Model):
         
     def __str__(self):
         return f"Parking {self.parking_id} - {self.address}"
+
+    def get_available_spots(self, at=None):
+        """
+        Return number of spots available at a given time.
+        A spot is taken if a booking overlaps the moment: start_time <= at < end_time.
+        If `at` is None, uses current time.
+        """
+        if at is None:
+            at = timezone.now()
+        booked = self.booking_set.filter(
+            start_time__lte=at,
+            end_time__gt=at
+        ).count()
+        return max(0, self.amount_of_spots - booked)
 
 class Booking(models.Model):
     booking_id = models.IntegerField(primary_key=True)

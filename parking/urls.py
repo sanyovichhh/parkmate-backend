@@ -9,6 +9,7 @@ from .views import (
     delete_user,
     parking_list_create,
     get_parking,
+    parking_availability,
     update_parking,
     delete_parking,
     booking_list_create,
@@ -33,6 +34,7 @@ urlpatterns = [
     # Parking endpoints
     path('parking/', parking_list_create, name='parking_list_create'),
     path('parking/<int:parking_id>/', get_parking, name='get_parking'),
+    path('parking/<int:parking_id>/availability/', parking_availability, name='parking_availability'),
     path('parking/<int:parking_id>/update/', update_parking, name='update_parking'),
     path('parking/<int:parking_id>/delete/', delete_parking, name='delete_parking'),
     

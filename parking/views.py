@@ -1,4 +1,6 @@
+from datetime import datetime
 from django.shortcuts import render, get_object_or_404
+from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status, permissions
@@ -178,6 +180,39 @@ def get_parking(request, parking_id):
     parking = get_object_or_404(Parking, parking_id=parking_id)
     serializer = ParkingSerializer(parking)
     return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+def parking_availability(request, parking_id):
+    """
+    Get number of available spots for a parking at a given time.
+    GET /api/parkmate/parking/{parking_id}/availability/?at=2025-03-15T12:00:00
+    Query param `at`: ISO 8601 datetime (optional; defaults to now).
+    """
+    parking = get_object_or_404(Parking, parking_id=parking_id)
+    at_str = request.query_params.get('at')
+    if at_str:
+        try:
+            at = datetime.fromisoformat(at_str.replace('Z', '+00:00'))
+            if timezone.is_naive(at):
+                at = timezone.make_aware(at)
+        except ValueError:
+            return Response(
+                {'error': 'Invalid datetime for "at". Use ISO 8601, e.g. 2025-03-15T12:00:00'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    else:
+        at = timezone.now()
+
+    available = parking.get_available_spots(at=at)
+    booked = parking.amount_of_spots - available
+    return Response({
+        'parking_id': parking.parking_id,
+        'datetime': at.isoformat(),
+        'total_spots': parking.amount_of_spots,
+        'booked': booked,
+        'available': available,
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['PUT'])
