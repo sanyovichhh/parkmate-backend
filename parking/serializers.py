@@ -63,11 +63,14 @@ class BookingSerializer(serializers.ModelSerializer):
         read_only_fields = ('booking_id',)
 
     def validate(self, attrs):
-        start_time = attrs.get('start_time')
-        end_time = attrs.get('end_time')
-        parking_id = attrs.get('parking_id')
+        instance = getattr(self, 'instance', None)
 
-        if start_time and end_time and start_time >= end_time:
+        # Support partial updates: fall back to current instance values
+        start_time = attrs.get('start_time') or (instance.start_time if instance else None)
+        end_time = attrs.get('end_time') or (instance.end_time if instance else None)
+        parking_id = attrs.get('parking_id') or (instance.parking_id.parking_id if instance else None)
+
+        if start_time is not None and end_time is not None and start_time >= end_time:
             raise serializers.ValidationError({"end_time": "End time must be after start time"})
 
         if not parking_id:
@@ -80,12 +83,18 @@ class BookingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"parking_id": "Parking does not exist"})
 
         # Capacity check: count overlapping bookings for this parking
-        if start_time and end_time:
-            overlapping = Booking.objects.filter(
+        if start_time is not None and end_time is not None:
+            overlapping_qs = Booking.objects.filter(
                 parking_id=parking,
                 start_time__lt=end_time,
                 end_time__gt=start_time,
-            ).count()
+            )
+
+            # On update, do not count current booking against itself
+            if instance is not None:
+                overlapping_qs = overlapping_qs.exclude(pk=instance.pk)
+
+            overlapping = overlapping_qs.count()
 
             if overlapping >= parking.amount_of_spots:
                 raise serializers.ValidationError({
