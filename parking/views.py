@@ -7,6 +7,7 @@ from rest_framework import status, permissions
 from django.contrib.auth import authenticate
 from django.contrib.auth import login as auth_login, logout as auth_logout
 from .models import Parking, User, Booking
+from .pagination import StandardResultsSetPagination
 from .serializers import (
     UserRegistrationSerializer,
     UserSerializer,
@@ -17,6 +18,27 @@ from .serializers import (
 
 def home(request):
     return render(request, 'index.htm')
+
+
+
+def parse_at_query_param(request):
+    """
+    Read optional ?at= ISO datetime from query string.
+    Returns (at, error_response). at is None if param missing; error_response is set on bad format.
+    """
+    at_str = request.query_params.get('at')
+    if not at_str:
+        return None, None
+    try:
+        at = datetime.fromisoformat(at_str.replace('Z', '+00:00'))
+        if timezone.is_naive(at):
+            at = timezone.make_aware(at)
+        return at, None
+    except ValueError:
+        return None, Response(
+            {'error': 'Invalid datetime for "at". Use ISO 8601, e.g. 2025-03-15T12:00:00'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 
 # Authentication endpoints
@@ -166,9 +188,18 @@ def parking_list_create(request):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     else:  # GET
-        parkings = Parking.objects.all()
-        serializer = ParkingSerializer(parkings, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        at, err = parse_at_query_param(request)
+        if err is not None:
+            return err
+        parkings = Parking.objects.all().order_by("parking_id")
+        paginator = StandardResultsSetPagination()
+        page = paginator.paginate_queryset(parkings, request)
+        serializer = ParkingSerializer(
+            page,
+            many=True,
+            context={'request': request, 'at': at},
+        )
+        return paginator.get_paginated_response(serializer.data)
 
 
 @api_view(['GET'])
@@ -176,9 +207,13 @@ def get_parking(request, parking_id):
     """
     Get specific parking.
     GET /api/parkmate/parking/{parking_id}
+    Optional query: ?at=2025-03-15T12:00:00 — includes available_spots at that time.
     """
+    at, err = parse_at_query_param(request)
+    if err is not None:
+        return err
     parking = get_object_or_404(Parking, parking_id=parking_id)
-    serializer = ParkingSerializer(parking)
+    serializer = ParkingSerializer(parking, context={'request': request, 'at': at})
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -190,18 +225,10 @@ def parking_availability(request, parking_id):
     Query param `at`: ISO 8601 datetime (optional; defaults to now).
     """
     parking = get_object_or_404(Parking, parking_id=parking_id)
-    at_str = request.query_params.get('at')
-    if at_str:
-        try:
-            at = datetime.fromisoformat(at_str.replace('Z', '+00:00'))
-            if timezone.is_naive(at):
-                at = timezone.make_aware(at)
-        except ValueError:
-            return Response(
-                {'error': 'Invalid datetime for "at". Use ISO 8601, e.g. 2025-03-15T12:00:00'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-    else:
+    at, err = parse_at_query_param(request)
+    if err is not None:
+        return err
+    if at is None:
         at = timezone.now()
 
     available = parking.get_available_spots(at=at)
@@ -285,12 +312,16 @@ def booking_list_create(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     else:  # GET
         if request.user.is_admin:
-            bookings = Booking.objects.all()
+            bookings = Booking.objects.all().order_by("-start_time", "booking_id")
         else:
-            bookings = Booking.objects.filter(user_id=request.user)
-        
-        serializer = BookingSerializer(bookings, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            bookings = Booking.objects.filter(user_id=request.user).order_by(
+                "-start_time", "booking_id"
+            )
+
+        paginator = StandardResultsSetPagination()
+        page = paginator.paginate_queryset(bookings, request)
+        serializer = BookingSerializer(page, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
 
 
 @api_view(['GET'])

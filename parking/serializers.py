@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import Parking, User, Booking
-from django.contrib.auth.hashers import make_password, check_password
+
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
@@ -38,10 +38,29 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ParkingSerializer(serializers.ModelSerializer):
+    """
+    Optional extra field `available_spots` when the view passes context['at'] (datetime).
+    If `at` is not in context, `available_spots` is null (not computed).
+    """
+    available_spots = serializers.SerializerMethodField()
+
     class Meta:
         model = Parking
-        fields = '__all__'
-        read_only_fields = ('parking_id',)
+        fields = (
+            'parking_id',
+            'amount_of_spots',
+            'address',
+            'comment',
+            'price',
+            'available_spots',
+        )
+        read_only_fields = ('parking_id', 'available_spots')
+
+    def get_available_spots(self, obj):
+        at = self.context.get('at')
+        if at is None:
+            return None
+        return obj.get_available_spots(at=at)
 
     def create(self, validated_data):
         # Auto-generate parking_id if not provided
