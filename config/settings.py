@@ -42,12 +42,14 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "rest_framework",
     "parking",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "config.middleware.DisableCSRFForAPI",  # Exempt API endpoints from CSRF
@@ -135,6 +137,28 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Custom User Model
 AUTH_USER_MODEL = 'parking.User'
+
+# CORS (browser clients on another origin, e.g. React/Vite on :3000 / :5173)
+# Set CORS_ALLOWED_ORIGINS in .env as comma-separated URLs, e.g.:
+# CORS_ALLOWED_ORIGINS=http://localhost:5173,https://your-app.vercel.app
+_cors_origins = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+if _cors_origins:
+    CORS_ALLOWED_ORIGINS = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+else:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ]
+
+# Required for session cookies / credentials from the SPA
+CORS_ALLOW_CREDENTIALS = True
+
+# Match browser origins that send cookies (session auth from frontend)
+CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
 
 # REST Framework settings
 REST_FRAMEWORK = {
