@@ -48,12 +48,13 @@ def parse_at_query_param(request):
 @permission_classes([permissions.AllowAny])
 def register(request):
     """
-    Register a new user.
+    Register a new user and start a session (same cookie behavior as login).
     POST /api/parkmate/register
     """
     serializer = UserRegistrationSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()
+        auth_login(request._request, user)
         return Response({
             'user': UserSerializer(user).data,
             'message': 'User registered successfully'
@@ -138,6 +139,22 @@ def get_user(request, user_id):
     serializer = UserSerializer(user)
     return Response(serializer.data, status=status.HTTP_200_OK)
 
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_all_users(request):
+    """
+    Get all users.
+    GET /api/parkmate/users
+    Accessible only for admins.
+    """
+    if not request.user.is_admin:
+        return Response(
+            {'error': 'You do not have permission to access this users'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    users = User.objects.all()
+    serializer = UserSerializer(users, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)
 
 @api_view(['DELETE'])
 @permission_classes([permissions.IsAuthenticated])
@@ -163,6 +180,7 @@ def delete_user(request, user_id):
 # Parking endpoints
 
 @api_view(['GET', 'POST'])
+@permission_classes([permissions.AllowAny])
 def parking_list_create(request):
     """
     Create a new parking or get all parkings.
@@ -203,6 +221,7 @@ def parking_list_create(request):
 
 
 @api_view(['GET'])
+@permission_classes([permissions.AllowAny])
 def get_parking(request, parking_id):
     """
     Get specific parking.
@@ -218,6 +237,7 @@ def get_parking(request, parking_id):
 
 
 @api_view(['GET'])
+@permission_classes([permissions.AllowAny])
 def parking_availability(request, parking_id):
     """
     Get number of available spots for a parking at a given time.
