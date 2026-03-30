@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 import dj_database_url
 from pathlib import Path
+from urllib.parse import urlparse
 import os
 from dotenv import load_dotenv
 
@@ -30,7 +31,22 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'True'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(' ')
+# Render sets RENDER_EXTERNAL_URL (e.g. https://your-service.onrender.com). Without a matching
+# host here, Django returns 400 Bad Request for every request when DEBUG is False.
+_RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
+
+
+def _split_hosts(value: str) -> list[str]:
+    if not value or not value.strip():
+        return []
+    return [h for h in value.replace(",", " ").split() if h]
+
+
+ALLOWED_HOSTS = _split_hosts(os.environ.get("ALLOWED_HOSTS", ""))
+if _RENDER_EXTERNAL_URL:
+    _render_host = urlparse(_RENDER_EXTERNAL_URL).hostname
+    if _render_host and _render_host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_render_host)
 
 
 # Application definition
@@ -160,6 +176,11 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Match browser origins that send cookies (session auth from frontend)
 CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
+if _RENDER_EXTERNAL_URL:
+    _render_origin = urlparse(_RENDER_EXTERNAL_URL)
+    _origin = f"{_render_origin.scheme}://{_render_origin.netloc}"
+    if _origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(_origin)
 
 # REST Framework settings
 REST_FRAMEWORK = {
