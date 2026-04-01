@@ -174,6 +174,21 @@ else:
 # Required for session cookies / credentials from the SPA
 CORS_ALLOW_CREDENTIALS = True
 
+# Cross-origin session auth (SPA on e.g. Vercel, API on Render): default SameSite=Lax
+# does not send session cookies on cross-site XHR/fetch. Browsers require SameSite=None
+# and Secure for third-party cookie context.
+if DEBUG:
+    SESSION_COOKIE_SECURE = False
+    SESSION_COOKIE_SAMESITE = "Lax"
+    CSRF_COOKIE_SECURE = False
+    CSRF_COOKIE_SAMESITE = "Lax"
+else:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_SAMESITE = "None"
+    CSRF_COOKIE_SECURE = True
+    CSRF_COOKIE_SAMESITE = "None"
+
 # Match browser origins that send cookies (session auth from frontend)
 CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
 if _RENDER_EXTERNAL_URL:
